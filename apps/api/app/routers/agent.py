@@ -8,9 +8,11 @@ from sqlalchemy import func, select
 
 from ..db import session_scope
 from ..models import Conversation, ConversationMessage
-from ..services import agent, runs
+from ..config import get_settings
+from ..services import agent, runs, slack
 
 router = APIRouter(prefix="/api/agent")
+settings = get_settings()
 
 
 class MessageIn(BaseModel):
@@ -110,11 +112,25 @@ async def analyze_instrument(body: AnalyzeIn):
         f"Analyse {label}",
         instructions=agent.instrument_analysis_prompt(body.tradingsymbol, body.exchange, body.kind, body.name),
     )
-    return await _start_run(conversation_id, turn, f"Analyse {label}", announce=True)
+    def notify_slack(run: runs.Run) -> None:
+        if not settings.slack_notify_analyses:
+            return
+        link = f"{settings.web_url}/agent?c={conversation_id}"
+        report = run.final_text()
+        if report:
+            slack.notify(f"Analysis: {label}", report, subtitle=f"{body.exchange} · {body.kind}", link=link)
+        else:
+            slack.notify(f"Analysis failed: {label}", run.error() or "The run ended without a report.", link=link)
+
+    return await _start_run(conversation_id, turn, f"Analyse {label}", announce=True, on_complete=notify_slack)
 
 
 async def _start_run(
-    conversation_id: uuid.UUID, user_turn: dict, user_text: str, announce: bool = False
+    conversation_id: uuid.UUID,
+    user_turn: dict,
+    user_text: str,
+    announce: bool = False,
+    on_complete=None,
 ) -> StreamingResponse:
     """Persist the user turn, start the agent in the background, and stream its events.
 
@@ -148,7 +164,7 @@ async def _start_run(
         return seq
 
     start_seq = await persist(user_turn)
-    run = runs.start(conversation_id, history, persist, start_seq, user_text)
+    run = runs.start(conversation_id, history, persist, start_seq, user_text, on_complete)
     return _sse(run, announce=str(conversation_id) if announce else None)
 
 

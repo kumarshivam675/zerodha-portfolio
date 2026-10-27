@@ -35,6 +35,14 @@ class Run:
             self.done = True
             self._cond.notify_all()
 
+    def final_text(self) -> str:
+        """The answer: text streamed after the last tool call (earlier text is progress narration)."""
+        last_tool = max((i for i, e in enumerate(self.events) if e["type"] == "tool_input"), default=-1)
+        return "".join(e["text"] for e in self.events[last_tool + 1 :] if e["type"] == "text").strip()
+
+    def error(self) -> str | None:
+        return next((e["message"] for e in self.events if e["type"] == "error"), None)
+
     async def subscribe(self) -> AsyncIterator[dict | None]:
         """Replay every event so far, then follow live ones. Yields None as a keep-alive tick."""
         i = 0
@@ -73,7 +81,9 @@ def start(
     persist: Callable[[dict], Awaitable[None]],
     start_seq: int,
     user_text: str,
+    on_complete: Callable[["Run"], None] | None = None,
 ) -> Run:
+    """Start the agent in the background. `on_complete` runs (in a thread) once the run ends."""
     run = Run(start_seq, user_text)
     _runs[conversation_id] = run
 
@@ -86,6 +96,11 @@ def start(
             await run.publish({"type": "error", "message": f"Agent failed: {exc}"})
         finally:
             await run.finish()
+            if on_complete:
+                try:
+                    await asyncio.to_thread(on_complete, run)
+                except Exception:
+                    log.exception("run completion hook failed")
             if _runs.get(conversation_id) is run:
                 del _runs[conversation_id]
 

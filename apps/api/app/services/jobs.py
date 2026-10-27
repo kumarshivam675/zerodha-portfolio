@@ -11,7 +11,7 @@ from sqlalchemy import select
 from ..config import get_settings
 from ..db import session_scope
 from ..models import DailyBrief, JobRun
-from . import agent, kite, portfolio, prices
+from . import agent, kite, portfolio, prices, slack
 
 log = logging.getLogger(__name__)
 settings = get_settings()
@@ -59,9 +59,15 @@ def _run_daily(trigger: str) -> dict:
         if settings.auto_brief and settings.agent_configured:
             try:
                 content = asyncio.run(agent.write_brief())
+                today = datetime.now(IST).date()
                 with session_scope() as db:
-                    db.add(DailyBrief(brief_date=datetime.now(IST).date(), content=content))
+                    db.add(DailyBrief(brief_date=today, content=content))
                 detail["brief"] = "written"
+                if settings.slack_notify_briefs and slack.configured():
+                    sent = slack.notify(
+                        f"Daily brief · {today.strftime('%a %d %b %Y')}", content, link=settings.web_url
+                    )
+                    detail["slack"] = "sent" if sent else "failed"
             except Exception as exc:
                 log.exception("brief failed")
                 detail["brief"] = f"failed: {exc}"

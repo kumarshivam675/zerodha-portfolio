@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     auto_snapshot: bool = True
     auto_brief: bool = True
 
+    # Slack Incoming Webhook for finished analyses and daily briefs (empty = disabled).
+    slack_webhook_url: str = ""
+    slack_notify_analyses: bool = True
+    slack_notify_briefs: bool = True
+    # Mask the investor's own figures ({{...}}-tagged by the analyst) in Slack messages.
+    slack_hide_amounts: bool = True
+
     @property
     def kite_configured(self) -> bool:
         return bool(self.kite_api_key and self.kite_api_secret)

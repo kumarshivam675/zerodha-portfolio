@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..db import get_db
 from ..models import DailyBrief, Snapshot
-from ..services import jobs, kite, portfolio, prices, trades
+from ..services import jobs, kite, portfolio, prices, slack, trades
 
 settings = get_settings()
 router = APIRouter(prefix="/api")
@@ -113,6 +113,23 @@ def import_tradebook(body: TradebookIn, db: Session = Depends(get_db)):
 @router.get("/trades/summary")
 def trades_summary(db: Session = Depends(get_db)):
     return trades.summary(db)
+
+
+# --- Slack ------------------------------------------------------------------
+
+@router.post("/slack/test")
+def slack_test():
+    """Send a sample message to the configured webhook."""
+    if not slack.configured():
+        raise HTTPException(400, "SLACK_WEBHOOK_URL is not set")
+    sample = (
+        "## Snapshot\n| | |\n|---|---|\n| Last price | ₹2,635.00 |\n| Your P&L | {{+₹21,400}} |\n\n"
+        "**It works.** You'll get a message here when an analysis finishes and when the daily brief is written. "
+        "Your own figures like {{40 shares}} are hidden unless `SLACK_HIDE_AMOUNTS=false`."
+    )
+    if not slack.notify("Portfolio: Slack connected", sample, link=settings.web_url):
+        raise HTTPException(502, "Slack rejected the message; check the webhook URL")
+    return {"sent": True}
 
 
 # --- Prices, briefs, jobs --------------------------------------------------
