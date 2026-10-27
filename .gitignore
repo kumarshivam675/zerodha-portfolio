@@ -1,0 +1,17 @@
+# Secrets: only the template is committed
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output
+node_modules/
+.next/
+*.tsbuildinfo
+__pycache__/
+*.pyc
+.venv/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

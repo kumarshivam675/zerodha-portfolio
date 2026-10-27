@@ -1,0 +1,67 @@
+name: portfolio
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-portfolio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-portfolio}
+      POSTGRES_DB: ${POSTGRES_DB:-portfolio}
+      AGENT_DB_PASSWORD: ${AGENT_DB_PASSWORD:-agent_ro}
+      TZ: Asia/Kolkata
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./apps/api
+    image: portfolio-api:local
+    restart: unless-stopped
+    env_file: .env
+    environment: &api-env
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-portfolio}:${POSTGRES_PASSWORD:-portfolio}@db:5432/${POSTGRES_DB:-portfolio}
+      AGENT_DATABASE_URL: postgresql+psycopg://agent_ro:${AGENT_DB_PASSWORD:-agent_ro}@db:5432/${POSTGRES_DB:-portfolio}
+      WEB_URL: ${WEB_URL:-http://localhost:3300}
+      TZ: Asia/Kolkata
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  worker:
+    image: portfolio-api:local  # same image as api, built by the api service
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    env_file: .env
+    environment: *api-env
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    build: ./apps/web
+    restart: unless-stopped
+    environment:
+      API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3300}:3000"
+
+volumes:
+  pgdata:
