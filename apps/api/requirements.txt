@@ -1,0 +1,12 @@
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+sqlalchemy==2.0.55
+psycopg[binary]==3.3.6
+pydantic-settings==2.15.0
+kiteconnect==5.2.2
+yfinance==1.7.0
+pandas==2.3.3
+apscheduler==3.11.3
+anthropic==1.17.0
+# Newer cryptography arm64 wheels crash (SIGILL) on some Docker Desktop VMs.
+cryptography==44.0.3
