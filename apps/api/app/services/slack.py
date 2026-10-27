@@ -3,7 +3,9 @@
 import logging
 import re
 
+import anthropic
 import requests
+from pydantic import BaseModel, Field
 
 from ..config import get_settings
 
@@ -109,12 +111,12 @@ def build_payload(title: str, markdown: str, subtitle: str | None = None, link: 
     return {"text": title, "blocks": blocks}
 
 
-def notify(title: str, markdown: str, subtitle: str | None = None, link: str | None = None) -> bool:
+def _post(payload: dict) -> bool:
     """Post to the configured webhook. Never raises: a Slack outage shouldn't break the app."""
     if not configured():
         return False
     try:
-        resp = requests.post(settings.slack_webhook_url, json=build_payload(title, markdown, subtitle, link), timeout=15)
+        resp = requests.post(settings.slack_webhook_url, json=payload, timeout=15)
         if resp.status_code != 200:
             log.warning("Slack webhook returned %s: %s", resp.status_code, resp.text[:200])
             return False
@@ -122,3 +124,106 @@ def notify(title: str, markdown: str, subtitle: str | None = None, link: str | N
     except requests.RequestException as exc:
         log.warning("Slack webhook failed: %s", exc)
         return False
+
+
+def notify(title: str, markdown: str, subtitle: str | None = None, link: str | None = None) -> bool:
+    """Send a report as-is (converted to Slack formatting)."""
+    return _post(build_payload(title, markdown, subtitle, link))
+
+
+# --- Digest: a crisp, structured Slack version of a long report ---------------
+
+DIGEST_THRESHOLD = 1800  # characters; shorter answers are sent as they are
+
+
+class Figure(BaseModel):
+    label: str = Field(description="Short label, e.g. 'Last price', 'Your P&L', 'P/E', 'RSI(14)'")
+    value: str = Field(description="Value with units, e.g. '₹2,635 (+3.1%)', '52.7x', '77 (overbought)'")
+
+
+class DigestSection(BaseModel):
+    title: str = Field(description="Section title, e.g. 'Last 3 months', 'News & macro'")
+    bullets: list[str] = Field(description="2-3 bullets, each at most 20 words, leading with the key number or date")
+
+
+class Digest(BaseModel):
+    verdict: str = Field(description="The bottom line in under 12 words, e.g. 'Hold; trim ~25% before Q2 results'. Empty if the report has no recommendation.")
+    confidence: str = Field(description="'low', 'medium' or 'high' as stated in the report, else ''")
+    summary: str = Field(description="At most 2 sentences (40 words): what matters most and why")
+    key_figures: list[Figure] = Field(description="4-6 headline numbers; each value at most 6 words")
+    sections: list[DigestSection] = Field(description="3-4 sections covering the report's substance in report order")
+    watch: list[str] = Field(description="2-3 things to watch or that would change the view, each at most 20 words")
+
+
+DIGEST_PROMPT = """Turn this investment report into a Slack digest someone can read in under a minute.
+
+Rules:
+- Use only facts and numbers that are in the report; do not add anything.
+- Crisp: detailed enough to act on, short enough to read in a minute. One idea per bullet, no sub-clauses.
+- Keep the decisive numbers, dates and named catalysts; drop filler, background, and caveats about tooling or sources.
+- Keep every {{...}} tag exactly as written (they mark the investor's private figures). If you restate such a figure,
+  wrap it in {{...}} too.
+- Plain text with **bold** for emphasis only; no headings, no links, no tables.
+
+Report:
+"""
+
+
+def make_digest(report: str) -> Digest | None:
+    if not settings.anthropic_api_key:
+        return None
+    try:
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        response = client.messages.parse(
+            model=settings.slack_digest_model,
+            max_tokens=4000,
+            output_config={"effort": "low"},
+            messages=[{"role": "user", "content": DIGEST_PROMPT + report}],
+            output_format=Digest,
+        )
+        if response.stop_reason == "refusal":
+            return None
+        return response.parsed_output
+    except Exception:  # fall back to the full report rather than lose the message
+        log.exception("Slack digest failed")
+        return None
+
+
+def _md(text: str) -> str:
+    return to_mrkdwn(_privacy(text))
+
+
+def digest_payload(title: str, d: Digest, subtitle: str | None = None, link: str | None = None) -> dict:
+    links = " · ".join(filter(None, [subtitle, f"<{link}|Open full report>" if link else None]))
+    blocks: list[dict] = [{"type": "header", "text": {"type": "plain_text", "text": title[:150], "emoji": True}}]
+    if links:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": links}]})
+    if d.verdict:
+        conf = f"   _Confidence: {d.confidence}_" if d.confidence else ""
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f":dart: *{_md(d.verdict)}*{conf}"}})
+    blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _md(d.summary)[:SECTION_LIMIT]}})
+    if d.key_figures:
+        fields = [{"type": "mrkdwn", "text": f"*{_md(f.label)}*\n{_md(f.value)}"[:2000]} for f in d.key_figures[:10]]
+        blocks.append({"type": "section", "fields": fields})
+    blocks.append({"type": "divider"})
+    for sec in d.sections[:6]:
+        text = f"*{_md(sec.title)}*\n" + "\n".join(f"• {_md(b)}" for b in sec.bullets[:5])
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text[:SECTION_LIMIT]}})
+    if d.watch:
+        text = "*:eyes: What to watch*\n" + "\n".join(f"• {_md(w)}" for w in d.watch[:5])
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text[:SECTION_LIMIT]}})
+    blocks.append(
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": "AI-generated analysis, not investment advice."}]}
+    )
+    return {"text": f"{title}: {d.verdict or d.summary[:120]}", "blocks": blocks}
+
+
+def notify_report(title: str, report: str, subtitle: str | None = None, link: str | None = None) -> bool:
+    """Send a long report as a structured digest (full report in the app); short ones as-is."""
+    if not configured():
+        return False
+    if len(report) > DIGEST_THRESHOLD:
+        d = make_digest(report)
+        if d:
+            return _post(digest_payload(title, d, subtitle, link))
+    return notify(title, report, subtitle, link)

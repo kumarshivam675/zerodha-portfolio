@@ -64,8 +64,8 @@ def _run_daily(trigger: str) -> dict:
                     db.add(DailyBrief(brief_date=today, content=content))
                 detail["brief"] = "written"
                 if settings.slack_notify_briefs and slack.configured():
-                    sent = slack.notify(
-                        f"Daily brief · {today.strftime('%a %d %b %Y')}", content, link=settings.web_url
+                    sent = slack.notify_report(
+                        f":newspaper: Daily brief · {today.strftime('%a %d %b %Y')}", content, link=settings.web_url
                     )
                     detail["slack"] = "sent" if sent else "failed"
             except Exception as exc:

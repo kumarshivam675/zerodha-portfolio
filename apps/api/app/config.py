@@ -28,8 +28,11 @@ class Settings(BaseSettings):
 
     # Slack Incoming Webhook for finished analyses and daily briefs (empty = disabled).
     slack_webhook_url: str = ""
-    slack_notify_analyses: bool = True
+    slack_notify_analyses: bool = True  # Analyse runs from the holdings table
+    slack_notify_chat: bool = True  # answers to questions on the Analyst page and follow-ups
     slack_notify_briefs: bool = True
+    # Model that condenses long reports into the Slack digest.
+    slack_digest_model: str = "claude-sonnet-5-5"
     # Mask the investor's own figures ({{...}}-tagged by the analyst) in Slack messages.
     slack_hide_amounts: bool = True
 

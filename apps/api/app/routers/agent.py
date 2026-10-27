@@ -89,7 +89,10 @@ async def send_message(conversation_id: uuid.UUID, body: MessageIn):
             raise HTTPException(404, "Conversation not found")
         if c.title == "New conversation":
             c.title = body.content.strip().splitlines()[0][:80]
-    return await _start_run(conversation_id, agent.user_message(body.content), body.content)
+    question = " ".join(body.content.split())
+    title = f":speech_balloon: {question[:120]}{'…' if len(question) > 120 else ''}"
+    notify = _slack_hook(conversation_id, title, "Analyst", settings.slack_notify_chat)
+    return await _start_run(conversation_id, agent.user_message(body.content), body.content, on_complete=notify)
 
 
 class AnalyzeIn(BaseModel):
@@ -112,17 +115,25 @@ async def analyze_instrument(body: AnalyzeIn):
         f"Analyse {label}",
         instructions=agent.instrument_analysis_prompt(body.tradingsymbol, body.exchange, body.kind, body.name),
     )
-    def notify_slack(run: runs.Run) -> None:
-        if not settings.slack_notify_analyses:
-            return
-        link = f"{settings.web_url}/agent?c={conversation_id}"
-        report = run.final_text()
-        if report:
-            slack.notify(f"Analysis: {label}", report, subtitle=f"{body.exchange} · {body.kind}", link=link)
-        else:
-            slack.notify(f"Analysis failed: {label}", run.error() or "The run ended without a report.", link=link)
+    kind = "Fund" if body.kind == "mf" else body.exchange
+    notify = _slack_hook(conversation_id, f":bar_chart: Analysis: {label}", kind, settings.slack_notify_analyses)
+    return await _start_run(conversation_id, turn, f"Analyse {label}", announce=True, on_complete=notify)
 
-    return await _start_run(conversation_id, turn, f"Analyse {label}", announce=True, on_complete=notify_slack)
+
+def _slack_hook(conversation_id: uuid.UUID, title: str, subtitle: str | None, enabled: bool):
+    """Completion hook that posts the run's answer (or its failure) to Slack."""
+    if not enabled or not slack.configured():
+        return None
+
+    def notify(run: runs.Run) -> None:
+        link = f"{settings.web_url}/agent?c={conversation_id}"
+        answer = run.final_text()
+        if answer:
+            slack.notify_report(title, answer, subtitle=subtitle, link=link)
+        else:
+            slack.notify(f"Failed: {title}", run.error() or "The run ended without an answer.", link=link)
+
+    return notify
 
 
 async def _start_run(
