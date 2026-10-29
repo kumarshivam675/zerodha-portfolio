@@ -1,7 +1,8 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import get_settings
@@ -53,10 +54,32 @@ AGENT_READABLE_TABLES = [
 ]
 
 
-def init_db() -> None:
-    from . import models  # noqa: F401  (register models)
+BASELINE_REVISION = "0001"
+MIGRATION_LOCK = 724_201  # arbitrary, app-wide advisory lock id
 
-    Base.metadata.create_all(engine)
+
+def migrate() -> None:
+    """Bring the schema to the latest Alembic revision (app/migrations).
+
+    Databases created before migrations existed (by `create_all`) are stamped at the baseline first.
+    """
+    from alembic import command
+    from alembic.config import Config
+
+    config = Config()
+    config.set_main_option("script_location", str(Path(__file__).parent / "migrations"))
+    with engine.begin() as conn:
+        # The API and the worker both migrate on startup; serialise them.
+        conn.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": MIGRATION_LOCK})
+        config.attributes["connection"] = conn
+        tables = set(inspect(conn).get_table_names())
+        if "alembic_version" not in tables and "holdings" in tables:
+            command.stamp(config, BASELINE_REVISION)
+        command.upgrade(config, "head")
+
+
+def init_db() -> None:
+    migrate()
     with engine.begin() as conn:
         conn.execute(text("GRANT USAGE ON SCHEMA public TO agent_ro"))
         conn.execute(text(f"GRANT SELECT ON {', '.join(AGENT_READABLE_TABLES)} TO agent_ro"))

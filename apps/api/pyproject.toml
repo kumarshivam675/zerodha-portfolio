@@ -1,0 +1,33 @@
+[project]
+name = "portfolio-api"
+version = "0.1.0"
+description = "FastAPI backend for the self-hosted Zerodha portfolio tracker and its AI analyst"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "I", "SIM", "RUF"]
+ignore = [
+  "RUF001", "RUF002", "RUF003",  # ambiguous unicode: ₹, −, → and … are intended in prompts and copy
+]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.File"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "evals"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["app", "evals"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+plugins = ["pydantic.mypy"]

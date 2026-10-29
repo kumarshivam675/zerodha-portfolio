@@ -148,7 +148,7 @@ export default function Chat() {
 
         <div className="border-t border-border bg-surface p-3 sm:p-4">
           <div className="max-w-3xl mx-auto">
-            <Composer onSend={send} disabled={agent.streaming} placeholder="Ask about your portfolio, a stock, or the market…" />
+            <Composer onSend={send} onStop={agent.cancel} disabled={agent.streaming} placeholder="Ask about your portfolio, a stock, or the market…" />
             <p className="text-[0.7rem] text-subtle mt-2 text-center">
               AI analysis, not financial advice. Check important numbers before you trade.
             </p>

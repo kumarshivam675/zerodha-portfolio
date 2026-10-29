@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api")
 
 # --- Zerodha ---------------------------------------------------------------
 
+
 @router.get("/kite/status")
 def kite_status(db: Session = Depends(get_db)):
     return kite.status(db)
@@ -52,6 +53,7 @@ def kite_sync(db: Session = Depends(get_db)):
 
 
 # --- Portfolio & snapshots -------------------------------------------------
+
 
 @router.get("/portfolio")
 def get_portfolio(db: Session = Depends(get_db)):
@@ -97,6 +99,7 @@ def delete_snapshot(snapshot_date: date, db: Session = Depends(get_db)):
 
 # --- Trade history (XIRR) ----------------------------------------------------
 
+
 class TradebookIn(BaseModel):
     csv: str
 
@@ -117,6 +120,7 @@ def trades_summary(db: Session = Depends(get_db)):
 
 # --- Slack ------------------------------------------------------------------
 
+
 @router.post("/slack/test")
 def slack_test():
     """Send a sample message to the configured webhook."""
@@ -134,6 +138,7 @@ def slack_test():
 
 # --- Prices, briefs, jobs --------------------------------------------------
 
+
 @router.get("/prices/{exchange}/{tradingsymbol}")
 def get_prices(exchange: str, tradingsymbol: str, days: int = 365, db: Session = Depends(get_db)):
     return prices.price_history(db, tradingsymbol, exchange, days)
@@ -143,7 +148,12 @@ def get_prices(exchange: str, tradingsymbol: str, days: int = 365, db: Session =
 def list_briefs(limit: int = 10, db: Session = Depends(get_db)):
     briefs = db.scalars(select(DailyBrief).order_by(DailyBrief.created_at.desc()).limit(limit))
     return [
-        {"id": b.id, "brief_date": b.brief_date.isoformat(), "content": b.content, "created_at": b.created_at.isoformat()}
+        {
+            "id": b.id,
+            "brief_date": b.brief_date.isoformat(),
+            "content": b.content,
+            "created_at": b.created_at.isoformat(),
+        }
         for b in briefs
     ]
 

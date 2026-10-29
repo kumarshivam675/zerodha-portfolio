@@ -4,8 +4,9 @@ import csv
 import io
 from collections import defaultdict
 from datetime import date, datetime
+from typing import cast
 
-from sqlalchemy import func, select
+from sqlalchemy import CursorResult, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -48,7 +49,7 @@ def _upsert(db: Session, rows: list[dict]) -> int:
     if not rows:
         return 0
     stmt = insert(Trade).values(rows).on_conflict_do_nothing(index_elements=["exchange", "trade_id"])
-    result = db.execute(stmt)
+    result = cast(CursorResult, db.execute(stmt))
     db.commit()
     return result.rowcount or 0
 
@@ -65,9 +66,7 @@ def import_console_csv(db: Session, text: str) -> dict:
             mapping[header] = ALIASES[key]
     missing = REQUIRED - set(mapping.values())
     if missing:
-        raise ValueError(
-            f"Missing columns: {', '.join(sorted(missing))}. Download the tradebook from Console as CSV."
-        )
+        raise ValueError(f"Missing columns: {', '.join(sorted(missing))}. Download the tradebook from Console as CSV.")
 
     rows, skipped = [], 0
     for raw in reader:
@@ -100,7 +99,7 @@ def import_console_csv(db: Session, text: str) -> dict:
     # Deduplicate within the file too (Console exports can repeat rows across ranges).
     unique = list({(row["exchange"], row["trade_id"]): row for row in rows}.values())
     inserted = sum(_upsert(db, unique[i : i + 1000]) for i in range(0, len(unique), 1000))
-    dates = [row["trade_date"] for row in unique]
+    dates = [cast(date, row["trade_date"]) for row in unique]
     return {
         "rows": len(unique),
         "inserted": inserted,
@@ -113,7 +112,9 @@ def import_console_csv(db: Session, text: str) -> dict:
 
 def import_kite_trades(db: Session, trades: list[dict]) -> int:
     """Store today's executed trades from the Kite API (equity delivery and intraday)."""
-    isin_by_symbol = dict(db.execute(select(Holding.tradingsymbol, Holding.isin)).all())
+    isin_by_symbol: dict[str, str | None] = {
+        symbol: isin for symbol, isin in db.execute(select(Holding.tradingsymbol, Holding.isin)).all()
+    }
     rows = []
     for t in trades:
         if t.get("exchange") not in ("NSE", "BSE"):
@@ -206,23 +207,23 @@ def compute_xirr(db: Session, holdings: list[Holding], today: date) -> dict:
         bought = sum(t.quantity for t in ts if t.trade_type == "buy")
         sold = sum(t.quantity for t in ts if t.trade_type == "sell")
         net = bought - sold
-        h = held.get(key)
+        holding = held.get(key)
 
-        if h is None:
+        if holding is None:
             # Fully exited position: realised flows only, if the history explains every sale.
             if ts and sold <= bought + 1e-6:
                 portfolio_flows += flows
             continue
 
         if not ts or net <= 1e-6:
-            per_holding[h.tradingsymbol] = {"xirr": None, "coverage": "none"}
+            per_holding[holding.tradingsymbol] = {"xirr": None, "coverage": "none"}
             continue
-        covered_qty = min(net, h.quantity)
-        terminal = h.current_value * covered_qty / h.quantity if h.quantity else 0.0
-        status = "full" if abs(net - h.quantity) < 1e-6 else "partial"
-        rate = xirr(flows + [(today, terminal)])
-        per_holding[h.tradingsymbol] = {"xirr": rate * 100 if rate is not None else None, "coverage": status}
-        portfolio_flows += flows + [(today, terminal)]
+        covered_qty = min(net, holding.quantity)
+        terminal = holding.current_value * covered_qty / holding.quantity if holding.quantity else 0.0
+        status = "full" if abs(net - holding.quantity) < 1e-6 else "partial"
+        rate = xirr([*flows, (today, terminal)])
+        per_holding[holding.tradingsymbol] = {"xirr": rate * 100 if rate is not None else None, "coverage": status}
+        portfolio_flows += [*flows, (today, terminal)]
         covered_value += terminal
 
     rate = xirr(portfolio_flows)

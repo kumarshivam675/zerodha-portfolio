@@ -1,6 +1,7 @@
 fastapi==0.162.0
 uvicorn[standard]==0.54.0
 sqlalchemy==2.0.55
+alembic==1.18.5
 psycopg[binary]==3.3.6
 pydantic-settings==2.15.0
 kiteconnect==5.2.2

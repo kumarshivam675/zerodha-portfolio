@@ -16,6 +16,7 @@ import {
   History,
   LineChart,
   Sparkles,
+  Square,
   Wrench,
 } from "lucide-react";
 import type { ChatBubble } from "@/lib/api";
@@ -175,11 +176,14 @@ export function TypingStatus({ status }: { status: string }) {
 
 export function Composer({
   onSend,
+  onStop,
   disabled,
   placeholder,
   autoFocus,
 }: {
   onSend: (text: string) => void;
+  /** Shown as a stop button while `disabled` (a run is in progress). */
+  onStop?: () => void;
   disabled: boolean;
   placeholder: string;
   autoFocus?: boolean;
@@ -223,14 +227,26 @@ export function Composer({
         placeholder={placeholder}
         className="flex-1 resize-none bg-transparent py-1.5 text-sm outline-none placeholder:text-subtle"
       />
-      <button
-        type="submit"
-        disabled={disabled || !input.trim()}
-        className="size-8 shrink-0 rounded-lg bg-accent text-white grid place-items-center disabled:opacity-40 hover:bg-accent-hover transition"
-        aria-label="Send"
-      >
-        <ArrowUp className="size-4" />
-      </button>
+      {disabled && onStop ? (
+        <button
+          type="button"
+          onClick={onStop}
+          className="size-8 shrink-0 rounded-lg bg-surface-2 border border-border-strong text-muted grid place-items-center hover:text-foreground transition"
+          aria-label="Stop"
+          title="Stop"
+        >
+          <Square className="size-3.5 fill-current" />
+        </button>
+      ) : (
+        <button
+          type="submit"
+          disabled={disabled || !input.trim()}
+          className="size-8 shrink-0 rounded-lg bg-accent text-white grid place-items-center disabled:opacity-40 hover:bg-accent-hover transition"
+          aria-label="Send"
+        >
+          <ArrowUp className="size-4" />
+        </button>
+      )}
     </form>
   );
 }

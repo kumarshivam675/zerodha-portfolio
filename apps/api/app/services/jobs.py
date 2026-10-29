@@ -78,10 +78,11 @@ def _run_daily(trigger: str) -> dict:
         status = "failed"
 
     with session_scope() as db:
-        run = db.get(JobRun, run_id)
-        run.status = status
-        run.detail = detail
-        run.finished_at = datetime.now(IST)
+        finished = db.get(JobRun, run_id)
+        if finished:  # created at the start of this function
+            finished.status = status
+            finished.detail = detail
+            finished.finished_at = datetime.now(IST)
     return {"status": status, **detail}
 
 

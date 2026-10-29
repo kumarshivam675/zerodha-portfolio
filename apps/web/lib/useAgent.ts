@@ -3,15 +3,33 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type ChatBubble, type Conversation, type Holding } from "./api";
 
-type AgentEvent =
+/**
+ * Mirrors app/services/events.py. `agent` names the pipeline agent that produced the event
+ * (Analyse runs several); chat leaves it out.
+ */
+type AgentEvent = { agent?: string } & (
   | { type: "conversation"; id: string }
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
   | { type: "tool_start"; id: string; name: string }
   | { type: "tool_input"; id: string; name: string; input: Record<string, unknown> }
   | { type: "tool_result"; id: string; name: string; is_error: boolean }
+  | { type: "usage"; model: string; cost_usd: number | null; duration_ms: number }
+  | { type: "retry"; reason: string }
+  | { type: "stage"; label: string }
+  | { type: "note"; text: string }
   | { type: "done"; stop_reason: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+);
+
+export const AGENT_LABEL: Record<string, string> = {
+  company: "Company research",
+  technicals: "Technical research",
+  macro: "Macro research",
+  fund: "Fund research",
+  strategy: "Strategy",
+  risk: "Risk",
+};
 
 export const TOOL_STATUS: Record<string, string> = {
   get_portfolio: "Reading your portfolio",
@@ -46,7 +64,10 @@ export function useAgentConversation({
   const [messages, setMessages] = useState<ChatBubble[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  /** Estimated API cost of the current or last run, from its usage events. */
+  const [cost, setCost] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
+  const cancelledRef = useRef(false);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -72,8 +93,25 @@ export function useAgentConversation({
           setStatus("Thinking");
           patchAssistant((b) => ({ ...b, thinking: (b.thinking ?? "") + event.text }));
           break;
-        case "tool_start":
-          setStatus(TOOL_STATUS[event.name] ?? event.name);
+        case "tool_start": {
+          const what = TOOL_STATUS[event.name] ?? event.name;
+          const who = event.agent && AGENT_LABEL[event.agent];
+          setStatus(who ? `${who} · ${what}` : what);
+          break;
+        }
+        case "stage":
+          setStatus(event.label);
+          break;
+        case "usage":
+          setCost((c) => c + (event.cost_usd ?? 0));
+          break;
+        case "retry":
+          // The turn is re-issued from scratch: drop its partial output.
+          setStatus("Retrying after a temporary API error");
+          patchAssistant((b) => ({ ...b, text: "", thinking: "" }));
+          break;
+        case "note":
+          patchAssistant((b) => ({ ...b, notes: [...(b.notes ?? []), event.text] }));
           break;
         case "tool_input":
           // Reasoning and text written before a tool call are progress notes, not the answer.
@@ -88,7 +126,7 @@ export function useAgentConversation({
           });
           break;
         case "error":
-          onError(event.message);
+          if (!cancelledRef.current) onError(event.message);
           break;
       }
     },
@@ -100,7 +138,9 @@ export function useAgentConversation({
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
+      cancelledRef.current = false;
       setStreaming(true);
+      setCost(0);
       setStatus("Thinking");
       setMessages((ms) => [
         ...ms,
@@ -164,8 +204,21 @@ export function useAgentConversation({
     [conversationId, streaming, stream, onError],
   );
 
+  /** Stop the live run on the server (every agent in it), not just this browser's stream. */
+  const cancel = useCallback(async () => {
+    if (!conversationId) return;
+    cancelledRef.current = true;
+    setStatus("Stopping");
+    try {
+      await api(`/agent/conversations/${conversationId}/cancel`, { method: "POST" });
+    } catch {
+      // Already finished: nothing to stop.
+    }
+  }, [conversationId]);
+
   const analyze = useCallback(
     async (h: Holding) => {
+      if (streaming) await cancel();
       setConversationId(null);
       setMessages([]);
       await stream(
@@ -174,7 +227,7 @@ export function useAgentConversation({
         `Analyse ${holdingLabel(h)}`,
       );
     },
-    [stream],
+    [stream, streaming, cancel],
   );
 
   /** Show a saved conversation, re-attaching to its run if one is in progress. Resolves false if it can't be loaded. */
@@ -205,5 +258,5 @@ export function useAgentConversation({
     setStatus(null);
   }, []);
 
-  return { conversationId, messages, streaming, status, send, analyze, load, reset };
+  return { conversationId, messages, streaming, status, cost, send, analyze, cancel, load, reset };
 }

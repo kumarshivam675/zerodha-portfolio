@@ -1,7 +1,10 @@
 """Client-side tools the portfolio agent can call. Each tool validates its input with pydantic."""
 
 import json
+from collections.abc import Callable
 from datetime import date
+from itertools import pairwise
+from typing import Any
 
 import yfinance as yf
 from pydantic import BaseModel, Field, ValidationError
@@ -114,6 +117,16 @@ SERVER_TOOLS = [
 TOOLS = CLIENT_TOOLS + SERVER_TOOLS
 
 
+def toolset(*client: str, web_search: int = 0, web_fetch: int = 0) -> list[dict]:
+    """A subset of the tools for one specialist agent; web tools capped at the given number of uses."""
+    tools = [t for t in CLIENT_TOOLS if t["name"] in client]
+    if web_search:
+        tools.append({**SERVER_TOOLS[0], "max_uses": web_search})
+    if web_fetch:
+        tools.append({**SERVER_TOOLS[1], "max_uses": web_fetch})
+    return tools
+
+
 def _get_portfolio(_: NoInput):
     with session_scope() as db:
         return portfolio.current_portfolio(db)
@@ -169,14 +182,14 @@ def _get_technicals(inp: TechnicalsInput):
         return round(sum(closes[-n:]) / n, 2) if len(closes) >= n else None
 
     gains, losses = [], []
-    for a, b in zip(closes[-15:-1], closes[-14:]):
+    for a, b in pairwise(closes[-15:]):
         gains.append(max(b - a, 0))
         losses.append(max(a - b, 0))
     avg_loss = sum(losses) / 14
     rsi = round(100 - 100 / (1 + (sum(gains) / 14) / avg_loss), 1) if avg_loss else 100.0
 
     year = closes[-252:]
-    daily = [b / a - 1 for a, b in zip(year[:-1], year[1:])]
+    daily = [b / a - 1 for a, b in pairwise(year)]
     mean = sum(daily) / len(daily)
     vol = (sum((d - mean) ** 2 for d in daily) / len(daily)) ** 0.5 * (252**0.5) * 100
     peak, max_dd = year[0], 0.0
@@ -206,10 +219,30 @@ def _get_technicals(inp: TechnicalsInput):
 
 
 INFO_KEYS = [
-    "longName", "sector", "industry", "marketCap", "currentPrice", "previousClose", "trailingPE", "forwardPE",
-    "priceToBook", "trailingEps", "dividendYield", "returnOnEquity", "debtToEquity", "profitMargins",
-    "revenueGrowth", "earningsGrowth", "fiftyTwoWeekLow", "fiftyTwoWeekHigh", "fiftyDayAverage",
-    "twoHundredDayAverage", "beta", "targetMeanPrice", "recommendationKey", "numberOfAnalystOpinions",
+    "longName",
+    "sector",
+    "industry",
+    "marketCap",
+    "currentPrice",
+    "previousClose",
+    "trailingPE",
+    "forwardPE",
+    "priceToBook",
+    "trailingEps",
+    "dividendYield",
+    "returnOnEquity",
+    "debtToEquity",
+    "profitMargins",
+    "revenueGrowth",
+    "earningsGrowth",
+    "fiftyTwoWeekLow",
+    "fiftyTwoWeekHigh",
+    "fiftyDayAverage",
+    "twoHundredDayAverage",
+    "beta",
+    "targetMeanPrice",
+    "recommendationKey",
+    "numberOfAnalystOpinions",
     "longBusinessSummary",
 ]
 
@@ -240,7 +273,7 @@ def _query_database(inp: SqlInput):
     }
 
 
-HANDLERS = {
+HANDLERS: dict[str, tuple[type[BaseModel], Callable[[Any], Any]]] = {
     "get_portfolio": (NoInput, _get_portfolio),
     "list_snapshots": (ListSnapshotsInput, _list_snapshots),
     "get_snapshot": (GetSnapshotInput, _get_snapshot),

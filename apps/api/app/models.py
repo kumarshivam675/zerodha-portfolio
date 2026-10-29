@@ -172,12 +172,43 @@ class ConversationMessage(Base):
     __table_args__ = (UniqueConstraint("conversation_id", "seq"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    conversation_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
-    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
     seq: Mapped[int] = mapped_column(Integer)
     role: Mapped[str] = mapped_column(String(16))
     content: Mapped[list] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
+
+
+class AgentStep(Base):
+    """One internal turn or result of an Analyse pipeline agent (research, strategy, risk).
+
+    The conversation itself only stores the final report; this is the trace behind it.
+    """
+
+    __tablename__ = "agent_steps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
+    agent: Mapped[str] = mapped_column(String(32))
+    kind: Mapped[str] = mapped_column(String(16))  # "turn" (a Messages-API turn) or "result"
+    content: Mapped[dict | list] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AgentRun(Base):
+    """One agent run (a chat answer or an Analyse pipeline): outcome, tokens and estimated cost."""
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))  # "chat" | "analysis"
+    status: Mapped[str] = mapped_column(String(16))  # running | succeeded | failed | cancelled | interrupted
+    error: Mapped[str | None] = mapped_column(Text)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

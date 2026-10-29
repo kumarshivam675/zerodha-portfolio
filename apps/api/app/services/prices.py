@@ -30,9 +30,7 @@ def yahoo_ticker(tradingsymbol: str, exchange: str) -> str:
 
 def fetch_history(db: Session, tradingsymbol: str, exchange: str, period: str) -> int:
     """Download daily candles for one symbol and upsert them. Returns rows written."""
-    df = yf.Ticker(yahoo_ticker(tradingsymbol, exchange)).history(
-        period=period, interval="1d", auto_adjust=False
-    )
+    df = yf.Ticker(yahoo_ticker(tradingsymbol, exchange)).history(period=period, interval="1d", auto_adjust=False)
     if df is None or df.empty:
         return 0
     rows = [
@@ -72,9 +70,9 @@ def update_equity_prices(db: Session) -> dict:
     fetched, failed = 0, []
     for h in holdings:
         has_history = db.scalar(
-            select(func.count()).select_from(PriceHistory).where(
-                PriceHistory.tradingsymbol == h.tradingsymbol, PriceHistory.exchange == h.exchange
-            )
+            select(func.count())
+            .select_from(PriceHistory)
+            .where(PriceHistory.tradingsymbol == h.tradingsymbol, PriceHistory.exchange == h.exchange)
         )
         try:
             fetched += fetch_history(db, h.tradingsymbol, h.exchange, "1mo" if has_history else "1y")
@@ -115,6 +113,13 @@ def price_history(db: Session, tradingsymbol: str, exchange: str = "NSE", days: 
         )
     )
     return [
-        {"date": r.price_date.isoformat(), "open": r.open, "high": r.high, "low": r.low, "close": r.close, "volume": r.volume}
+        {
+            "date": r.price_date.isoformat(),
+            "open": r.open,
+            "high": r.high,
+            "low": r.low,
+            "close": r.close,
+            "volume": r.volume,
+        }
         for r in reversed(rows)
     ]

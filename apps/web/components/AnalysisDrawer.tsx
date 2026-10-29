@@ -60,9 +60,8 @@ export default function AnalysisDrawer({ holding, agent, onClose }: { holding: H
             <div className="flex items-center gap-1 shrink-0">
               <button
                 onClick={() => agent.analyze(holding)}
-                disabled={agent.streaming}
                 className="btn btn-ghost btn-sm"
-                title="Run the analysis again"
+                title={agent.streaming ? "Stop this analysis and start again" : "Run the analysis again"}
               >
                 <RotateCw className="size-4" />
               </button>
@@ -95,8 +94,10 @@ export default function AnalysisDrawer({ holding, agent, onClose }: { holding: H
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-5">
           {!started && agent.streaming && (
             <div className="rounded-xl border border-dashed border-border-strong p-4 mb-5 text-sm text-muted">
-              Researching {holdingLabel(holding)}: price action over 3 and 6 months, technicals, fundamentals, recent
-              news and macro or geopolitical drivers. A thorough analysis usually takes one to three minutes.
+              Research agents are working in parallel on {holdingLabel(holding)}: company news and fundamentals,
+              price action and technicals, and macro or geopolitical drivers. A strategy agent then writes the
+              verdict and a risk agent checks it against your limits and the sources. This usually takes three to
+              five minutes.
             </div>
           )}
           <MessageList messages={agent.messages} streaming={agent.streaming} status={agent.status} hideFirstUser />
@@ -105,10 +106,14 @@ export default function AnalysisDrawer({ holding, agent, onClose }: { holding: H
         <footer className="border-t border-border p-4">
           <Composer
             onSend={agent.send}
+            onStop={agent.cancel}
             disabled={agent.streaming}
             placeholder={agent.streaming ? "Analysis in progress…" : `Ask a follow-up about ${holdingLabel(holding)}…`}
           />
-          <p className="text-[0.7rem] text-subtle mt-2 text-center">AI analysis, not financial advice.</p>
+          <p className="text-[0.7rem] text-subtle mt-2 text-center">
+            AI analysis, not financial advice.
+            {agent.cost > 0 && <span className="tabular-nums"> · Est. API cost ${agent.cost.toFixed(2)}</span>}
+          </p>
         </footer>
       </aside>
     </div>

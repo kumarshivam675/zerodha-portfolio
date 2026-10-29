@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..models import Holding, KiteSession
-from .portfolio import holding_values
 from . import trades as trade_history
+from .portfolio import holding_values
 
 settings = get_settings()
 IST = ZoneInfo("Asia/Kolkata")

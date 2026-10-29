@@ -29,7 +29,9 @@ def _privacy(text: str) -> str:
         figure = m.group(1).strip()
         sign = figure[0] if figure[:1] in "+-−" else ""
         currency = "₹" if "₹" in figure else ""
-        words = re.sub(r"^[+\-−]?\s*(?:₹|Rs\.?|INR)?\s*[\d,]+(?:\.\d+)?\s*(?:lakhs?|crores?|L|Cr|cr|k|K)?(?![A-Za-z])", "", figure).strip()
+        words = re.sub(
+            r"^[+\-−]?\s*(?:₹|Rs\.?|INR)?\s*[\d,]+(?:\.\d+)?\s*(?:lakhs?|crores?|L|Cr|cr|k|K)?(?![A-Za-z])", "", figure
+        ).strip()
         # Not "***": Slack would read the asterisks as bold markers.
         return f"{sign}{currency}•••{' ' + words if words else ''}"
 
@@ -104,7 +106,12 @@ def build_payload(title: str, markdown: str, subtitle: str | None = None, link: 
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": context}]})
     blocks += [{"type": "section", "text": {"type": "mrkdwn", "text": c}} for c in chunks if c.strip()]
     if truncated:
-        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "_Truncated; open the app for the full report._"}]})
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": "_Truncated; open the app for the full report._"}],
+            }
+        )
     blocks.append(
         {"type": "context", "elements": [{"type": "mrkdwn", "text": "AI-generated analysis, not investment advice."}]}
     )
@@ -147,7 +154,10 @@ class DigestSection(BaseModel):
 
 
 class Digest(BaseModel):
-    verdict: str = Field(description="The bottom line in under 12 words, e.g. 'Hold; trim ~25% before Q2 results'. Empty if the report has no recommendation.")
+    verdict: str = Field(
+        description="The bottom line in under 12 words, e.g. 'Hold; trim ~25% before Q2 results'. "
+        "Empty if the report has no recommendation."
+    )
     confidence: str = Field(description="'low', 'medium' or 'high' as stated in the report, else ''")
     summary: str = Field(description="At most 2 sentences (40 words): what matters most and why")
     key_figures: list[Figure] = Field(description="4-6 headline numbers; each value at most 6 words")
